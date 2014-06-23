@@ -1,0 +1,5 @@
+include LICENCE
+exclude .gitignore
+exclude .gitreview
+
+global-exclude *.pyc
