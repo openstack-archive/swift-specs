@@ -23,6 +23,7 @@ WIP Revision History:
 
 * 7/25, updated meta picture, specify that object metadata is system, redo reconstructor section
 * 7/31, added traceability to trello cards via section numbers and numbered task items, added a bunch of sections
+* 8/5, updated middleware section, container_sync section, removed 3.3.3.7 as dup, refactoring section, create common interface to proxy nodes, partial PUT handling, removed dependency on obj sysmet patch, sync'd with trello
 
 1. Summary
 ----------
@@ -87,7 +88,7 @@ in a hurry!
 * Proxy server buffers a configurable amount of incoming data and then encodes it via PyECLib we called this a 'segment' of an object.
 * Proxy distributes the output of the encoding of a segment to the various object nodes it gets from the EC ring, we call these 'fragments' of the segment
 * Each fragment carries opaque metadata for use by the PyECLib
-* Object metadata is used to store meta about both the fragments and the objects; we call an object, as stored on node, an 'EC Archive' and needs to be system metadata.  `This patch <https://review.openstack.org/#/c/79991/>`_ introduces system object metadata
+* Object metadata is used to store meta about both the fragments and the objects; we call an object, as stored on node, an 'EC Archive' and needs to be system metadata.
 * The EC archives container metadata contains information about the original object, not the EC archive
 * Here is a 50K foot overview:
 
@@ -105,7 +106,7 @@ See template section at the end
 This `patch <https://review.openstack.org/#/c/103644/>`_ introduces
 the EC policy itself as well as adds general extensibility for other policies
 to subclass the policy base class.  See patch for full details.  A follow-up
-patch will move quorum_size() to be a policy specific function.
+patch will move quorum_size() to be a policy specific method.
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
@@ -114,21 +115,26 @@ patch will move quorum_size() to be a policy specific function.
 
 3.3.2 **Middleware**
 
-Current thinking:  no middleware impact
-
-`Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
-
-* 3.3.2.1: Middleware Impact
+Middleware remains unchanged. For most middleware (e.g., SLO/DLO) the fact that the
+proxy is fragmenting incoming objects is transparent. For list endpoints, however, it
+is a bit different. A caller of list endpoints will get back the locations of all of
+the fragments. The caller will be unable to re-assemble the original object with this information, however the node locations may still prove to be useful information for some applications.
 
 3.3.3 **Proxy Server**
 
 At this point in time it doesn't not appear that any major refactoring is required
 to accommodate EC in the proxy, however that doesn't mean that its not a good
-opportunity to review what options might make sense right now.  For example:
+opportunity to review what options might make sense right now.  Discussions have included:
 
 * should we consider a clearer line between handing incoming requests and talking to the back-end servers?
+  Yes, it makes sense to do this.  There is a Trello card tracking this work and it covered in a section later below.
 * should the PUT path be refactored just because its huge and hard to follow?
+  Opportunistic refactoring makes sense however its not felt that it makes sense to
+  combine a full refactor of PUT as part of this EC effort.
 * should we consider different controllers (like an 'EC controller')?
+  No, we don't want to do this.  Proxy is broken up by type of thing that needs to be
+  processed - object, account, controller and not by how.  Its felt that this would get
+  too messy and blur the architecture.
 
 The following summarizes proxy changes to support EC:
 
@@ -168,19 +174,55 @@ of the primary that they are covering for.
 
 *Region Support*
 
-Discussion topic for how we want to support this.  Yuan has suggested read/write affinity changes
-but there was also some talk about wanting to keep EC policies limited to single region to start
-with.  Need to determine what makes sense here.
+For at least the initial version of EC, it is not recommended that an EC scheme span beyond a
+single region,  Neither performance nor functional validation will be been done in in such
+a configuration.
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
-* 3.3.3.1: Refactoring discussions
+* 3.3.3.5: CLOSED
+
+3.3.3.8: Create common interface for proxy-->nodes
+
+Creating a common module that allows for abstracted access to the a/c/s nodes would not only clean up
+much of the proxy IO path but would also prevent the introduction of EC from further
+complicating, for example, the PUT path.  Think about an interface that would let proxy code
+perform generic actions to a back-end node regardless of protocol.  The proposed API
+should be updated here and reviewed prior to implementation and its felt that it can be done
+in parallel with existing EC proxy work (no dependencies, that work i small enough it can
+be merged).
+
+3.3.3.6: Object overwrite and PUT error handling
+
+What's needed here is a mechanism to assure that we can handle partial write failures, more
+specifically:
+
+a) less than a quorum of nodes is written
+b) quorum is met but not all nodes were written
+
+and in both cases there are implications to both PUT and GET at both the proxy
+and object servers.  Additionally, the reconstructor plays a role here in cleaning up
+and old EC archives that result from the scheme described here (see reconstructor
+for details).
+
+*High Level Flow*
+
+* If storing an EC archive fragment, the object server should not delete older .data file.  This may be something that can be determined at the object server already or some indication may be needed at proxy PUT.
+* When the object server handles a GET, it needs to send header to the proxy that include all available timestamps for the .data file
+* If the proxy determines is can reconstruct the object with the latest timestamp (can reach quorum) it proceeds
+* If quorum cant be reached, find timestamp where quorum can be reached, kill existing connections (unless the body of that request was the found timestamp), and make new connections requesting the specific timestamp
+* On GET, the object server needs to support requesting a specific timestamp (eg ?timestamp=XYZ)
+
+`Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
+
+* 3.3.3.1: CLOSED
 * 3.3.3.2: Add high level GET flow
 * 3.3.3.3: Concurrent connects to object server on GET path in proxy server
 * 3.3.3.4: iter_nodes() changes for EC
 * 3.3.3.5: Region support for EC
 * 3.3.3.6: Object overwrite and PUT error handling
-* 3.3.3.7: Revive abandoned patch and propose to feature/ec
+* 3.3.3.7: CLOSED
+* 3.3.3.8: Create common interface for proxy-->nodes
 
 3.3.4 **Object Server**
 
@@ -200,12 +242,11 @@ Additional metadata is part of the EC design in a few different areas:
 
 .. image:: images/meta.png
 
-The object metadata will need to be stored as system metadata so we have
-a `dependency <https://review.openstack.org/#/c/799918/>`_
+The object metadata will need to be stored as system metadata.
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
-* 5.1: Enable sysmeta on object PUT  (from the dependencies section)
+* 5.1: Enable sysmeta on object PUT  (IMPLEMENTED)
 
 3.3.6 **Database Updates**
 
@@ -214,8 +255,15 @@ participating in the EC set.  Current thinking is that if we limit the
 number to the number of parity fragments for the scheme then we'll be on
 par with replication.  Meaning, if you lose N nodes you can't do container
 updates and the N for replication is just the replication factor where for
-EC its the number of parity fragments.  Which N and the specific
-implementation is TBD.
+EC its the number of parity fragments.
+
+For EC we'll base the number on the quorum value which is available via a
+policy method. So, when its time to do account/container updates, only
+X = (total - quorum) of the nodes participating in the EC scheme should actually
+perform the updates.
+
+To start with just the first X would work however there are likely some
+optimizations in this are to explore during implementation,
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
@@ -236,8 +284,7 @@ The key concepts in the reconstructor design are:
 * Minimal changes to replicator framework, auditor, ssync
 * Implement as new reconstructor daemon (much reuse from replicator) as there will be some differences and we will want separate logging and daemon control/visibility for the reconstructor
 * Require PUT to assure EC archives are placed in order on primary nodes (2 changes, no sorting in iter_nodes and the current PUT path concurrent method for puts needs to assure order as well)
-* Handoff nodes only revert data to its primary node or another handoff (not to any old primary)
-* Handoff nodes do not overwrite existing EC archives when reverting data
+* Handoff nodes only revert data to its primary node (not to any old primary)
 
 The current implementation thinking has the reconstructor live as its own daemon so
 that it has independent logging and controls.  Its structure will borrow heavily from
@@ -285,10 +332,31 @@ network traffic. This could be really bad wrt overloading the local node with re
 traffic as opposed to using all the compute power of all systems participating in the partitions
 kept on the local node.
 
+*Reconstructor Cleanup Responsibilities*
+
+For the reconstructor cleanup is a bit different than replication because, for PUT consistency
+reasons, the object server is going to keep the previous .data file (if it existed) just
+in case the PUT doesn't complete successfully on a quorum of nodes.  That leaves the replicator
+with 3 scenarios to deal with when it comes to cleaning up old files (note that the proxy will send
+a special message to the object server during put so that it does not delete old files as part
+of that code path):
+
+a) Assuming a PUT works (all nodes), the reconstructor will need to delete the older
+timestamps on the local node.
+
+b) Assuming a PUT is able to get a quorum down, the reconstructor will first need to reconstruct
+the object and push the EC archives out such that all participating nodes have one, then
+it can delete the older timestamps on the local node
+
+c) In the event that a PUT was only partially complete and did not get a quorum,
+reconstruction is not possible.  The reconstructor therefore needs to delete these files
+but there also must be an age factor to prevent it from deleting in flight PUTs.
+
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
 * 3.3.7.1: Reconstructor framework
 * 3.3.7.2: Ssync changes per spec sequence diagram
+* 3.3.7.3: Reconstructor local data file cleanup
 
 3.3.8 **Auditor**
 
@@ -313,18 +381,28 @@ I think the only real thing to do here is make rebalance able to move more than 
 given partition at a time. In my mind, the EC scheme is stored in swift.conf, not in the ring,
 and the placement and device management doesn't need any changes to cope with EC.
 
-(Don't let the word "replica" confuse you; that's what the builder calls it internally.
-We're still talking EC here.)
+We also want to scrub ring tools to use the word "node" instead of "replicas" to avoid
+confusion with EC.
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
-* 3.3.10.1: Potential ring changes
+* 3.3.10.1:  Ring changes
 
 3.3.11 **Testing**
 
 Since these tests aren't always obvious (or possible) on a per patch basis (because of
 dependencies on other patches) we need to document scenarios that we want to make sure
 are covered once the code supports them.
+
+3.3.11.1 **Probe Tests**
+
+The `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ card for this has a good
+starting list of test scenarios, more should be added as the design progresses.
+
+3.3.11.2 **Functional Tests**
+
+To begin with at least, it believed we just need to make an EC policy the default
+and run existing functional tests (and make sure it does that automatically)
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
@@ -335,6 +413,9 @@ are covered once the code supports them.
 
 Container synch assumes the use of replicas. In the current design, container synch from an EC
 policy would send only one fragment archive to the remote container, not the reconstructed object.
+
+Therefore container sync needs to be updated to use an internal client instead of the direct client
+that would only grab a fragment archive.
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
@@ -354,6 +435,8 @@ parameters should be for swift.conf.
 We want to make sure its easy for the SAIO environment to be used for EC development
 and experimentation.  Just as we did with policies, we'll want to update both docs
 and scripts once we decide what exactly what we want it to look like.
+
+For now lets start with 6 total nodes and a 2+2+2 scheme (2 data, 2 parity, 2 handoffs)
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
@@ -425,9 +508,7 @@ There is a linux package, liberasurecode, that is also being developed as part o
 and is needed by PyECLib.  Getting it added for devstack tempest tests and unittests slaves is
 currently WIP by tsg
 
-The object metadata will need to be stored as system metadata so we have
-a dependency `here <https://review.openstack.org/#/c/76068/>`_
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
-* 5.1: Enable sysmeta on object PUT
+* 5.1: Enable sysmeta on object PUT  (IMPLEMENTED)
