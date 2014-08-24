@@ -24,6 +24,8 @@ WIP Revision History:
 * 7/25, updated meta picture, specify that object metadata is system, redo reconstructor section
 * 7/31, added traceability to trello cards via section numbers and numbered task items, added a bunch of sections
 * 8/5, updated middleware section, container_sync section, removed 3.3.3.7 as dup, refactoring section, create common interface to proxy nodes, partial PUT handling, removed dependency on obj sysmet patch, sync'd with trello
+* 8/23, many updates to reconstructor section based on con-call from 8/22.  Also added notes about not deleting on PUT where relevant and updated sections referencing closed Trello cards
+* 9/4, added section in reconstructor on concurrency
 
 1. Summary
 ----------
@@ -103,14 +105,12 @@ See template section at the end
 
 3.3.1 **Storage Policy Classes**
 
-This `patch <https://review.openstack.org/#/c/103644/>`_ introduces
-the EC policy itself as well as adds general extensibility for other policies
-to subclass the policy base class.  See patch for full details.  A follow-up
-patch will move quorum_size() to be a policy specific method.
+The feature/ec branch modifies how policies are instantiated in order to
+Support the new EC policy..  A follow-up patch will move quorum_size() to
+be a policy specific method more info is available on Trello.
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
-* 3.3.1.1: Add base EC storage policy
 * 3.3.1.2: Make quorum a policy based function
 
 3.3.2 **Middleware**
@@ -138,7 +138,9 @@ opportunity to review what options might make sense right now.  Discussions have
 
 The following summarizes proxy changes to support EC:
 
-*Basic flow for a PUT:*
+*TODO:  there are current discussion underway on Trello that affect both of these flows*
+
+**Basic flow for a PUT:**
     #. Proxy opens (ec_k + ec_m) backend requests to object servers
     #. Proxy buffers HTTP chunks up-to a minimum segment size (defined at 1MB to start with)
     #. Proxy feeds the assembled segment to PyECLib's encode() to get ec_k + ec_m fragments
@@ -147,32 +149,31 @@ The following summarizes proxy changes to support EC:
     #. Object servers store objects which are EC archives (their contents are the concatenation of erasure coded fragments)
     #. Object metadata changes: for 'etag', we store the md5sum of the EC archive object, as opposed to the non-EC case     where we store md5sum of the entire object
 
-*Proxy HTTP PUT request handling changes*
+**Proxy HTTP PUT request handling changes**
     #. Intercept EC request based on policy type
     #. Validate ring replica count against (ec_k + ec_m)
     #. Calculate EC quorum size for min_conns
     #. Call into PyEClib to encode to client_chunk_size sized object chunks to generate (ec_k + ec_m) EC fragments.
     #. Queue chunk EC fragments for writing to nodes
 
-*Basic flow for a GET:*
+**Basic flow for a GET:**
 
-*Proxy HTTP GET request handling changes*
+**Proxy HTTP GET request handling changes**
 
-TODO - add high level flow
+*TODO - add high level flow*
 
 The GET path in the proxy currently does not make use of concurrent back-end connections like the
 PUT path does (for obvious reason).  Because EC will require several GETs to collect fragments,
 it makes sense for the GET path to get the connections going concurrently.
 
-*iter_nodes() changes*
+**iter_nodes() changes node and index pairing**
 
-EC will require that node lists stay in order with respect to EC fragment archives.  See the
+EC requires that node lists stay in order with respect to EC fragment archives.  See the
 section on reconstructor for pictures as to why this is required.  In order to achieve this,
-the proxy iter_nodes() function needs to be modified (or replaced) for EC policies such that:
-(a) it does not shuffle/sort the node list and (b) handoffs take the place, within the node list,
-of the primary that they are covering for.
+modifications are in flight to support a new pairing between the node and the EC
+fragment data.  See `here <https://review.openstack.org/#/c/114084>`_ for more details
 
-*Region Support*
+**Region Support**
 
 For at least the initial version of EC, it is not recommended that an EC scheme span beyond a
 single region,  Neither performance nor functional validation will be been done in in such
@@ -195,7 +196,8 @@ be merged).
 3.3.3.6: Object overwrite and PUT error handling
 
 What's needed here is a mechanism to assure that we can handle partial write failures, more
-specifically:
+specifically: ( Note:  in both cases the client will get a failure back however without additional changes,
+each storage node that saved a EC fragment archive will effectively have an orphan.)
 
 a) less than a quorum of nodes is written
 b) quorum is met but not all nodes were written
@@ -205,9 +207,9 @@ and object servers.  Additionally, the reconstructor plays a role here in cleani
 and old EC archives that result from the scheme described here (see reconstructor
 for details).
 
-*High Level Flow*
+**High Level Flow**
 
-* If storing an EC archive fragment, the object server should not delete older .data file.  This may be something that can be determined at the object server already or some indication may be needed at proxy PUT.
+* If storing an EC archive fragment, the object server should not delete older .data file.  This patch is in review.
 * When the object server handles a GET, it needs to send header to the proxy that include all available timestamps for the .data file
 * If the proxy determines is can reconstruct the object with the latest timestamp (can reach quorum) it proceeds
 * If quorum cant be reached, find timestamp where quorum can be reached, kill existing connections (unless the body of that request was the found timestamp), and make new connections requesting the specific timestamp
@@ -218,9 +220,9 @@ for details).
 * 3.3.3.1: CLOSED
 * 3.3.3.2: Add high level GET flow
 * 3.3.3.3: Concurrent connects to object server on GET path in proxy server
-* 3.3.3.4: iter_nodes() changes for EC
+* 3.3.3.4: CLOSED
 * 3.3.3.5: Region support for EC
-* 3.3.3.6: Object overwrite and PUT error handling
+* 3.3.3.6 EC PUTs should not delete old data files
 * 3.3.3.7: CLOSED
 * 3.3.3.8: Create common interface for proxy-->nodes
 
@@ -238,7 +240,7 @@ TODO - add high level flow
 Additional metadata is part of the EC design in a few different areas:
 
 * New metadata is introduced in each 'fragment' that is opaque to Swift, it is used by PyECLib for internal purposes.
-* New metadata is introduced as system object metadata (pic doesn't show it as sysmeta but it will be) as shown in this picture:
+* New metadata is introduced as system object metadata as shown in this picture:
 
 .. image:: images/meta.png
 
@@ -263,13 +265,17 @@ X = (total - quorum) of the nodes participating in the EC scheme should actually
 perform the updates.
 
 To start with just the first X would work however there are likely some
-optimizations in this are to explore during implementation,
+optimizations in this are to explore during implementation including deciding
+when we want to do the DB updates in the first place (see Trello discussion card
+for more info)
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
 * 3.3.6.1: Acct/Cont DB Updates
 
 3.3.7 **The Reconstructor**
+
+**Overview**
 
 The key concepts in the reconstructor design are:
 
@@ -280,20 +286,18 @@ The key concepts in the reconstructor design are:
     #. Bit rot
 
 * Reconstruction happens at the EC archive level (no visibility into fragment level for either auditing or reconstruction)
-* Highly leverage ssync to gain visibility into which EC archive(s) need repair (some ssync mods needed, consider renaming the verb REPLICATION since ssync can be syncing in different ways now
-* Minimal changes to replicator framework, auditor, ssync
+* Highly leverage ssync to gain visibility into which EC archive(s) are needed (some ssync mods needed, consider renaming the verb REPLICATION since ssync can be syncing in different ways now
+* Minimal changes to existing replicator framework, auditor, ssync
 * Implement as new reconstructor daemon (much reuse from replicator) as there will be some differences and we will want separate logging and daemon control/visibility for the reconstructor
 * Require PUT to assure EC archives are placed in order on primary nodes (2 changes, no sorting in iter_nodes and the current PUT path concurrent method for puts needs to assure order as well)
 * Handoff nodes only revert data to its primary node (not to any old primary)
+
+**Reconstructor framework**
 
 The current implementation thinking has the reconstructor live as its own daemon so
 that it has independent logging and controls.  Its structure will borrow heavily from
 the replicator.  It will use ssync for updates and rsync for reverting data from handoff
 nodes.
-
-The following picture shows what the ssync changes to enable reconstruction.
-
-.. image:: images/recon.png
 
 The reconstructor will need to do a few things differently than the replicator,
 above and beyond the obvious EC functions.  Because each EC archive has
@@ -307,39 +311,18 @@ existing replicator mechanism for handoff reversion.
 
 .. image:: images/handoff2.png
 
+*Ssync changes per spec sequence diagram*
 
-An alternate, but rejected, proposal is archived on `Trello. <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_
+The following picture shows what the ssync changes to enable reconstruction.
 
-Key concepts for the REJECTED proposal were:
+.. image:: images/recon.png
 
-Perform auditing at the fragment level (sub segment) to avoid having the smallest unit of work be an EC archive.  This will reduce reconstruction network traffic
-
-Today the auditor quarantines an entire object, for fragment level rebuild we
-need an additional step to identify which fragment within the archive is bad and
-potentially quarantine in a different location to project the archive from deletion
-until the Reconstructor is done with it
-
-Today hashes.pkl only identifies a suffix directory in need of attention.  For
-fragment level rebuild, the reconstructor needs to have additional information as
-its not just syncing at the directory level:
-Needs to know which fragment archive in the suffix dir needs work
-Needs to know which segment index within the archive is bad
-Needs to know the fragment index of the archive (the EC archives position within the set)
-
-Perform reconstruction on the local node, however preserve the push model by having the
-remote node communicate reconstruction information via a new verb. This will reduce reconstruction
-network traffic. This could be really bad wrt overloading the local node with reconstruction
-traffic as opposed to using all the compute power of all systems participating in the partitions
-kept on the local node.
-
-*Reconstructor Cleanup Responsibilities*
+**Reconstructor local data file cleanup**
 
 For the reconstructor cleanup is a bit different than replication because, for PUT consistency
 reasons, the object server is going to keep the previous .data file (if it existed) just
 in case the PUT doesn't complete successfully on a quorum of nodes.  That leaves the replicator
-with 3 scenarios to deal with when it comes to cleaning up old files (note that the proxy will send
-a special message to the object server during put so that it does not delete old files as part
-of that code path):
+with many scenarios to deal with when it comes to cleaning up old files:
 
 a) Assuming a PUT works (all nodes), the reconstructor will need to delete the older
 timestamps on the local node.
@@ -352,11 +335,101 @@ c) In the event that a PUT was only partially complete and did not get a quorum,
 reconstruction is not possible.  The reconstructor therefore needs to delete these files
 but there also must be an age factor to prevent it from deleting in flight PUTs.
 
+The following series of pictures illustrate the various scenarios more completely.  We will use
+these scenarios against each of the main functions of the reconstructor which we will define as:
+
+#. Node to node communication and synchrinozation on stripe status
+#. Reconstructor framework (daemon)
+#. Reconstruction (Ssync changes per spec sequence diagram)
+#. Reconstructor local data file cleanup
+#. Rebalance
+#. Handoff reversion (move data back to primary)
+
+**Node to node communication and synchrinozation on stripe status**
+
+The first area for design is the node to node communication.  This is critical as we need
+Efficiency (not tons of chatter) but at the same time we need full synchronization or at
+least knowledge that we dont have it yet.  The reason the reconstructor cant use the
+old -talk to the guy on my left and guy on my right- and leave it at that, is because that
+doesnt provide information as to whether the full stripe is present, reconstructable, or
+orphaned.  A few different ideas are in play on Trello and include::
+
+* using the container DB to provide per node per archive status info on a PUT.
+* dont involve the container DB in all of this but borrow some concepts where the nodes pass their information onto the next guy in the chain and follow the ring basically
+* determine if we can use a new hashes.pkl format to share this kind of information as was discussed in the previously rejected design, at that time however it was being looked at to do sub EC archive reconstruction so the idea needs to be revisited for this purpose
+
+**Reconstructor rebalance**
+
+*TODO*
+
+**Reconstructor handoff reversion**
+
+*TODO*
+
+**Reconstructor concurrency**
+
+There are 2 aspects of concurrency to consider with the reconstructor:
+
+1) concurrency of the daemon
+
+This means the same for the reconstructor as it does for the replicator, the
+size of the GreelPool used for the 'udpate' and 'update_deleted' jobs.
+
+2) overall parallelism of partition reconstruction
+
+With regards to node-node communication we have already covered the notion that
+the reconstructor cannot simply check in with its neighbors to determine what
+action is should take, if any, on its current run because it needs to know the
+status of the full stripe (not just the status of one or two other EC archives).
+
+However, we do not want it to actually take action on all other nodes.  In other
+words, we do want to check in with every node to see if a reconstruction is needed
+and in the event that it is, we dont want to attempt reconstruction on partner
+nodes, its left and right neighbors.  This will minimize reconstruction races but
+still provide for redundancy in addressing the reconstruction of an EC archive.
+
+In the event that a node (HDD) is down, there will be 2 partners for that node per
+partition working the reconstruction thus if we had 6 primaries, for example,
+and an HDD dies on node 1.  We only want nodes 0 and 2 to add jobs to their local
+reconstructor even though when they call obj_ring.get_part_nodes(int(partition))
+to get a list of other members of the stripe they will get back 6 nodes.  The local
+node will make its decision as to whether to add a reconstruction job or not based
+on its position in the node list.
+
+In doing this, we minimize the reconstruction races but still enable all 6 nodes to be
+working on reconstruction for a failed HDD as the partitions will be distributed
+amongst all of the nodes therefore the node with the dead HDD will potentially have
+all other nodes pushing reconstructed EC archives to the handoff node in parallel on
+different partitions with every partition having at most 2 nodes racing to reconstruct
+its archives.
+
+The following picture illustrates the example above.
+
+.. image:: images/recons_ex1.png
+
+**SCENARIOS:**
+
+*TODO: Once designs are proposed for each of the main areas above, map to scenarios below for completeness.*
+
+.. image:: images/recons1.png
+.. image:: images/recons2.png
+.. image:: images/recons3.png
+.. image:: images/recons4.png
+.. image:: images/recons5.png
+.. image:: images/recons6.png
+.. image:: images/recons7.png
+.. image:: images/recons8.png
+.. image:: images/recons9.png
+.. image:: images/recons10.png
+
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
 * 3.3.7.1: Reconstructor framework
 * 3.3.7.2: Ssync changes per spec sequence diagram
 * 3.3.7.3: Reconstructor local data file cleanup
+* 3.3.7.4: Node to node communication and synchrinozation on stripe status
+* 3.3.7.5: Reconstructor rebalance
+* 3.3.7.6: Reconstructor handoff reversion
 
 3.3.8 **Auditor**
 
@@ -467,6 +540,32 @@ allowing a data to change the policy of a container that are not covered here bu
 be possible with this scheme making it even easier for an application to control the data durability
 policy.
 
+*Alternate Reconstructor Design*
+
+An alternate, but rejected, proposal is archived on `Trello. <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_
+
+Key concepts for the REJECTED proposal were:
+
+Perform auditing at the fragment level (sub segment) to avoid having the smallest unit of work be an EC archive.  This will reduce reconstruction network traffic
+
+Today the auditor quarantines an entire object, for fragment level rebuild we
+need an additional step to identify which fragment within the archive is bad and
+potentially quarantine in a different location to project the archive from deletion
+until the Reconstructor is done with it
+
+Today hashes.pkl only identifies a suffix directory in need of attention.  For
+fragment level rebuild, the reconstructor needs to have additional information as
+its not just syncing at the directory level:
+Needs to know which fragment archive in the suffix dir needs work
+Needs to know which segment index within the archive is bad
+Needs to know the fragment index of the archive (the EC archives position within the set)
+
+Perform reconstruction on the local node, however preserve the push model by having the
+remote node communicate reconstruction information via a new verb. This will reduce reconstruction
+network traffic. This could be really bad wrt overloading the local node with reconstruction
+traffic as opposed to using all the compute power of all systems participating in the partitions
+kept on the local node.
+
 4. Implementation
 =================
 
@@ -512,3 +611,5 @@ currently WIP by tsg
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
 * 5.1: Enable sysmeta on object PUT  (IMPLEMENTED)
+
+
