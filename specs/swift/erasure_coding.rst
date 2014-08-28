@@ -157,6 +157,14 @@ The following summarizes proxy changes to support EC:
     #. Queue chunk EC fragments for writing to nodes
 
 **Basic flow for a GET:**
+    #. Proxy opens (ec_k + ec_m) backend concurrent requests to object servers. See Trello card 3.3.3.3
+    #. Proxy would 1) validates the number of successful connections >= ec_k 2) checks the avaiable fragment archives responsed by obj-server are the same version.
+       3) continue searching from the hand-off nodes (ec_k + ec_m) if not enough data found. See Trello card 3.3.3.6
+    #. Proxy reads from the first ec_k fragment archives concurrently.
+    #. Proxy buffers the content to a segment up-to the minimum segment size.
+    #. Proxy feeds the assembled segment to PyECLib's decode() to get the original content.
+    #. Proxy sends the original content to Client.
+    #. Proxy then continues with the next segment of contents.
 
 **Proxy HTTP GET request handling changes**
 
