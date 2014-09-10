@@ -30,6 +30,11 @@ extensions = [
 feed_base_url = 'http://specs.openstack.org/openstack/swift-specs'
 feed_author = 'OpenStack Swift Team'
 
+exclude_patterns = [
+    '**/test.rst',
+    'template_link.rst',
+]
+
 # Optionally allow the use of sphinxcontrib.spelling to verify the
 # spelling of the documents.
 try:

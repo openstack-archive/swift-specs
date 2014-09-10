@@ -10,23 +10,29 @@ Swift
 
    specs/swift/*
 
-Swift Bench
------------
+.. NOTE(dhellmann): Uncomment this section after the first real
+   swift-bench spec is added.
 
-.. toctree::
-   :glob:
-   :maxdepth: 1
+   Swift Bench
+   -----------
 
-   specs/swift-bench/*
+   .. toctree::
+      :glob:
+      :maxdepth: 1
 
-Swift Client
-------------
+      specs/swift-bench/*
 
-.. toctree::
-   :glob:
-   :maxdepth: 1
+.. NOTE(dhellmann): Uncomment this section after the first real
+   swift-client spec is added.
 
-   specs/swiftclient/*
+   Swift Client
+   ------------
+
+   .. toctree::
+      :glob:
+      :maxdepth: 1
+
+      specs/swiftclient/*
 
 
 Specifications Repository Information
@@ -37,7 +43,6 @@ Specifications Repository Information
 
    README <readme_link>
    How to Contribute <contributing_link>
-   Sample Template <template_link>
 
 
 Indices and tables
