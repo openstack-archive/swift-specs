@@ -1,0 +1,9 @@
+Verified+2: Jenkins
+Code-Review+2: Chmouel Boudjnah <chmouel@enovance.com>
+Code-Review+2: Alistair Coles <alistair.coles@hp.com>
+Workflow+1: Alistair Coles <alistair.coles@hp.com>
+Submitted-by: Jenkins
+Submitted-at: Mon, 13 Oct 2014 15:28:03 +0000
+Reviewed-on: https://review.openstack.org/120545
+Project: openstack/swift-specs
+Branch: refs/heads/master
