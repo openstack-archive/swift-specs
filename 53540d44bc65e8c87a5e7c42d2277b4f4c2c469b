@@ -1,0 +1,8 @@
+Verified+2: Jenkins
+Code-Review+2: paul luse <paul.e.luse@intel.com>
+Workflow+1: paul luse <paul.e.luse@intel.com>
+Submitted-by: Jenkins
+Submitted-at: Tue, 21 Oct 2014 12:54:47 +0000
+Reviewed-on: https://review.openstack.org/125190
+Project: openstack/swift-specs
+Branch: refs/heads/master
