@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import os
 import sys
 
@@ -55,7 +56,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'swift-specs'
-copyright = u'2014, OpenStack Foundation'
+copyright = u'%s, OpenStack Foundation' % datetime.date.today().year
 
 # If true, '()' will be appended to :func: etc. cross-reference text.
 add_function_parentheses = True
