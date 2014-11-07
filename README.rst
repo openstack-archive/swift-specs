@@ -8,22 +8,32 @@ has signed off on the approach to solving a problem early on.
 
 Repository Structure
 ====================
-The expected structure of the respository is as follows::
+The structure of the repository is as follows::
 
   specs/
-      swift/
-      swift-bench/
-      swiftclient/
+      done/
+      in_progress/
 
-Implemented specs will be moved to an ``implemented`` directory
-under the respective project directory.
+Implemented specs will be moved to :ref:`done-directory`
+once the associated code has landed.
 
-Revisiting Specifications
-=========================
-We don't always get everything right the first time. If we realize we
-need to revisit a specification because something changed, either we
-now know more, or a new idea came in which we should embrace, we'll
-manage this by proposing an update to the specification in question.
+The Flow of an Idea from your Head to Implementation
+====================================================
+First propose a spec to the ``in_progress`` directory so that it can be
+reviewed. Reviewers adding a positive +1/+2 review in gerrit are promising
+that they will review the code when it is proposed. Spec documents should be
+approved and merged as soon as possible, and spec documents in the
+``in_progress`` directory can be updated as often as needed. Iterate on it.
+
+#. Have an idea
+#. Propose a spec
+#. Reviewers review the spec. As soon as 2 core reviewers like something,
+   merge it. Iterate on the spec as often as needed, and keep it updated.
+#. Once there is agreement on the spec, write the code.
+#. As the code changes during review, keep the spec updated as needed.
+#. Once the code lands (with all necessary tests and docs), the spec can be
+   moved to the ``done`` directory. If a feature needs a spec, it needs
+   docs, and the docs must land before or with the feature (not after).
 
 Learn As We Go
 ==============
