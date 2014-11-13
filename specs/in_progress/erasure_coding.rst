@@ -31,6 +31,7 @@ WIP Revision History:
 * 10/14, more reconstructor section updates, 2 phase commit intro - misc typos as well from review
 * 10/15, few clarifications from F2F review and bigger rewording/implementation change for what was called 2 phase commit
 * 10/17, misc clarifying notes on .durable stuff
+* 11/13: IMPORANT NOTE:  Several aspects of the reconstructor are being re-worked; the section will be updated ASAP
 
 1. Summary
 ----------
