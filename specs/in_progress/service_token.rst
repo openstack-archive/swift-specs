@@ -50,7 +50,7 @@ Item Feature/Topic                               Single-       Multi-
 Proposed change
 ===============
 
-It is proposed to put service data into a seperate account to the end-user's
+It is proposed to put service data into a separate account to the end-user's
 "normal" account. Although the account has a different name, the account
 is linked to the end-user's project. This solves issues with noise
 and namespace collisions. To remove fragility and improve consistency
@@ -95,7 +95,7 @@ The following rules are used when a service token is present:
 
 * The account (project) is specified by the first token (i.e., no change)
 
-* The user roles are initialy determined by the first token (i.e., no change).
+* The user roles are initially determined by the first token (i.e., no change).
 
 * The roles from the service token are made available in service_roles.
 
@@ -108,7 +108,7 @@ the account/project being accessed::
       Client
         |                               <user-token>: project-id: 1234
         |                                                user-id: 9876
-        |                                                  roles: Admin
+        |                                                  roles: admin
         | X-Auth-Token: <user-token>
         | X-Service-Token: <token-two>
         |
@@ -120,7 +120,7 @@ the account/project being accessed::
       Combined identity information:
            user_id: 9876
            project_id: 1234
-           roles: Admin
+           roles: admin
            service_roles: service
 
 Combining Groups in Tempauth
@@ -143,74 +143,76 @@ following diagram gives an example of this::
         |
         |  [filter:tempauth]
         |  user_joesaccount_joe: joespassword .admin
-        |  user_glanceaccount_glance: glancepassword .service
+        |  user_glanceaccount_glance: glancepassword servicegroup
         |
         v
-      Combined Groups: .admin .service
+      Combined Groups: .admin servicegroup
 
 Support for multiple reseller prefixes
 ======================================
 
 The reseller_prefix will now support a list of prefixes. For example,
-the following supports both ``AUTH_`` and ``SERVICE_``::
+the following supports both ``AUTH_`` and ``SERVICE_`` in keystoneauth::
 
-    [...]
-    reseller_prefix = AUTH_ SERVICE_
+    [filter:keystoneauth]
+    reseller_prefix = AUTH_, SERVICE_
 
 For backward compatibility, the default remains as ``AUTH_``.
 
-All existing configuration parameters are assumed to apply to the first
-item in the list. However, to indicate which prefix a paramter applies to,
-put the prefix in front of the parameter name. This applies to the
-following parameters:
+All existing configuration options are assumed to apply to the first
+item in the list. However, to indicate which prefix an option applies to,
+put the prefix in front of the option name. This applies to the
+following options:
 
-* reseller_admin_role (keystoneauth)
 * operator_roles (keystoneauth)
-* allow_overrides (tempauth, keystoneauth)
+* service_roles (described below) (keystoneauth)
+* require_group (described below) (tempauth)
 
-Other paramters (logging, storage_url_scheme, etc.) are not specific to
+Other options (logging, storage_url_scheme, etc.) are not specific to
 the reseller prefix.
 
-For example, this shows two prefixes and some parameters::
+For example, this shows two prefixes and some options::
 
     [filter:keystoneauth]
-    reseller_prefix = AUTH_ SERVICE_
-    reseller_admin_role = ResellerAdmin     <= old style, applies to AUTH_
-    AUTH_operator_roles = auth              <= new style
-    SERVICE_reseller_admin_role = ResellerAdmin
-    SERVICE_operator_roles = auth
-    SERVICE_allow_overrides = false
+    reseller_prefix = AUTH_, SERVICE_
+    reseller_admin_role = ResellerAdmin     <= global, applies to all
+    AUTH_operator_roles = admin             <= new style
+    SERVICE_operator_roles = admin
+    allow_overrides = false
 
 Support for composite authorization
 ===================================
 
-We will add a parameter called "service_roles" to keystoneauth. If
-present, composite tokens must be used and the service_roles (as explained
-earler) must contain the listed roles. Here is an example where the
-``AUTH_`` namespace requires the "admin" role, whereas the ``SERVICE_``
-namespace requires a "service" role::
+We will add an option called "service_roles" to keystoneauth. If
+present, composite tokens must be used and the service_roles must contain the
+listed roles. Here is an example where the ``AUTH_`` namespace requires the
+"admin" role be associated with the X-Auth-Token. The ``SERVICE_`` namespace
+requires that the "admin" role be associated with X-Auth-Token. In
+addition, it requires that the "service" role be associated with
+X-Service-Token::
 
     [filter:keystoneauth]
+    reseller_prefix = AUTH_, SERVICE_
     AUTH_operator_roles = admin
     SERVICE_operator_roles = admin
     SERVICE_service_roles = service
 
-In tempauth, the ".admin" group has a special (built-in) meaning. It is
-proposed to make this explicit. This allows different prefixes to require
-different groups(s). The "admin_groups" paramter is used for this purpose.
-If the value is a list, the user must be a member of all the groups in the
-list. The following shows an example::
+In tempauth, we will add an option called "require_group". If present,
+the user or service user must be a member of this group. (since tempauth
+combines groups from both X-Auth-Token and X-Service-Token, the required
+group may come from either or both tokens).
+
+The following shows an example::
 
     [filter:tempauth]
-    AUTH_admin_groups: .admin    <= not really needed since this is the default
-    SERVICE_admin_groups: .admin .service
-
+    reseller_prefix = AUTH_, SERVICE_
+    SERVICE_require_group = servicegroup
 
 Composite Tokens in the OpenStack Environment
 =============================================
 
 This section presents a simple configuration showing the flow from client
-through an OpenStack Service to Swift. We use glance in this example, but
+through an OpenStack Service to Swift. We use Glance in this example, but
 the principal is the same for all services. See later for a more
 complex service-specific setup.
 
@@ -219,7 +221,7 @@ The flow is as follows::
      Client
         |                               <user-token>: project-id: 1234
         |                                                user-id: 9876
-        | (request)                                        roles: Admin
+        | (request)                                        roles: admin
         | X-Auth-Token: <user-token>
         |
         v
@@ -237,14 +239,14 @@ The flow is as follows::
       Combined identity information:
            user_id: 9876
            project-id: 1234
-           roles: Admin
+           roles: admin
            service_roles: service
 
            [filter:keystoneauth]
-           reseller_prefix = AUTH_ SERVICE_
-           AUTH_operator_roles = Admin
+           reseller_prefix = AUTH_, SERVICE_
+           AUTH_operator_roles = admin
            AUTH_reseller_admin_roles = ResellerAdmin
-           SERVICE_operator_roles = Admin
+           SERVICE_operator_roles = admin
            SERVICE_service_roles = service
            SERVICE_reseller_admin_roles = ResellerAdmin
 
@@ -255,11 +257,11 @@ The authorization logic is as follows::
                 |
                in?
                 |
-        reseller_prefix = AUTH_ SERVICE_
+        reseller_prefix = AUTH_, SERVICE_
                 \
                 Yes
                   \
-            Use SERVICE_* configuation
+            Use SERVICE_* configuration
                    |
                    |
             /v1/SERVICE_1234/container/object
@@ -271,13 +273,13 @@ The authorization logic is as follows::
                            \
                        roles: admin
                            |
-                          in? SERVICE_operator_roles = Admin
+                          in? SERVICE_operator_roles = admin
                            \
                            Yes
                              \
                            service_roles: service
                              |
-                            in? SERVICE_SERVICE_ROLES = service
+                            in? SERVICE_service_roles = service
                              \
                              Yes
                                \
@@ -297,22 +299,6 @@ becomes possible: it should be possible to use temporary URLs to
 allow a client to upload or download objects to or from a service
 account.
 
-Service Catalog
----------------
-
-The Keystone service catalog will reflect multiple accounts as shown in the
-following example::
-
-    {
-      "name": "Object Storage",
-      "type": "object-store",
-      "endpoints": [
-      {
-        "publicURL": "https://hostname/v1/AUTH_1234",
-        "serviceURL": "https://hostname/v1/SERVICE_1234"
-      }
-    }
-
 Service-Specific Accounts
 -------------------------
 
@@ -324,9 +310,9 @@ in this proposal that limits this option. Here is an example of a
 possible configuration::
 
     [filter:keystoneauth]
-    reseller_prefix = AUTH_ IMAGE_ VOLUME_
-    IMAGE_SERVICE_ROLES = glance_service
-    VOLUME_SERVICE_ROLES = cinder_service
+    reseller_prefix = AUTH_, IMAGE_, VOLUME_
+    IMAGE_service_roles glance_service
+    VOLUME_service_roles = cinder_service
 
 python-swiftclient
 ------------------
@@ -339,10 +325,11 @@ Service Changes To Use ``SERVICE_`` Namespace
 Services (such as Glance, Cinder) need to be enhanced as follows to use
 the ``SERVICE_`` namespace:
 
-* Use the serviceURL path. Services have access to ``HTTP_SERVICE_CATALOG`` in
-  their environment so it is easy to construct the appropriate path.
+* Change the path to use the appropriate prefix. Applications have
+  HTTP_X_SERVICE_CATALOG in their environment so it is easy to construct the
+  appropriate path.
 * Add their token to the X-Service-Token header
-* They should have the "service" role for this token
+* They should have the appropriate service role for this token
 * They should include their service type (e.g., image) as a prefix to any
   container names they create. This will prevent conflict between services
   sharing the account.
@@ -410,7 +397,7 @@ To be fully effective, changes are needed in other projects:
 
 * Devstack. The Swift change by itself will probably not require Devstack
   changes. The Glance and Cinder services may need additional configuration
-  parameters to enable the X-Service-Token feature.
+  options to enable the X-Service-Token feature.
   Assignee: Unknown
 
 * Tempest. In principal, no changes should be needed as the proposal is
@@ -425,11 +412,11 @@ Work Items
 ----------
 
 * swift/common/middleware/tempauth.py is modified to support multiple
-  reseller prefixes, a configurable name for .admin and to process the
+  reseller prefixes, the require_group options and to process the
   X-Service-Token header
 
 * swift/common/middleware/keystoneauth.py is modified to support multiple
-  reseller prefixes and the service_roles parameter.
+  reseller prefixes and the service_roles option.
 
 * Write unit tests
 
