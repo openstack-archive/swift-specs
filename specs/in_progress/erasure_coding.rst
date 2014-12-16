@@ -32,6 +32,9 @@ WIP Revision History:
 * 10/15, few clarifications from F2F review and bigger rewording/implementation change for what was called 2 phase commit
 * 10/17, misc clarifying notes on .durable stuff
 * 11/13: IMPORANT NOTE:  Several aspects of the reconstructor are being re-worked; the section will be updated ASAP
+* 12/16: reconstructor updates, few minor updates throughout.
+* 2/3: reconstructor updates
+* 3/23: quick scrub to bring things in line w/current implementation
 
 1. Summary
 ----------
@@ -132,7 +135,7 @@ however the node locations may still prove to be useful information for some app
 
 3.3.3 **Proxy Server**
 
-At this point in time it doesn't not appear that any major refactoring is required
+Early on it did not appear that any major refactoring would be needed
 to accommodate EC in the proxy, however that doesn't mean that its not a good
 opportunity to review what options might make sense right now.  Discussions have included:
 
@@ -140,11 +143,9 @@ opportunity to review what options might make sense right now.  Discussions have
   Yes, it makes sense to do this.  There is a Trello card tracking this work and it covered in a section later below.
 * should the PUT path be refactored just because its huge and hard to follow?
   Opportunistic refactoring makes sense however its not felt that it makes sense to
-  combine a full refactor of PUT as part of this EC effort.
+  combine a full refactor of PUT as part of this EC effort.  YES!  This is active WIP.
 * should we consider different controllers (like an 'EC controller')?
-  No, we don't want to do this.  Proxy is broken up by type of thing that needs to be
-  processed - object, account, controller and not by how.  Its felt that this would get
-  too messy and blur the architecture.
+  Well, probably... YES This is active WIP.
 
 The following summarizes proxy changes to support EC:
 
@@ -170,7 +171,7 @@ The following summarizes proxy changes to support EC:
     #. Introduce Multi-phase Commit Conversation
 
 **Basic flow for a GET:**
-    #. Proxy opens (ec_k + ec_m) backend concurrent requests to object servers. See Trello card 3.3.3.3
+    #. Proxy opens ec_k backend concurrent requests to object servers. See Trello card 3.3.3.3
     #. Proxy would 1) validates the number of successful connections >= ec_k 2) checks the avaiable fragment archives responsed by obj-server are the same version.
        3) continue searching from the hand-off nodes (ec_k + ec_m) if not enough data found. See Trello card 3.3.3.6
     #. Proxy reads from the first ec_k fragment archives concurrently.
@@ -183,11 +184,9 @@ The following summarizes proxy changes to support EC:
 
 *TODO - add high level flow*
 
-The GET path in the proxy currently does not make use of concurrent back-end connections like the
-PUT path does (for obvious reason).  Because EC will require several GETs to collect fragments,
-it makes sense for the GET path to get the connections going concurrently.
-
 *Partial PUT handling*
+
+NOTE:  This is active WIP on trello.
 
 When a previous PUT fails in the middle, for whatever reason and regardless of how the response
 was sent to the client, there can be various scenarios at the object servers that require the
@@ -272,11 +271,13 @@ A few key points on the .durable file:
 
 * the .durable file means "the matching .data file for this has sufficient fragment archives somewhere, committed, to reconstruct the object"
 * the proxy server will never have knowledge (on GET or HEAD) or the existence of a .data file on an object server if it doesn't have a matching .durable file
-* the object server will never return a ts.data that doesn't have a matching .durable
+* the object server will never return a .data that doesn't have a matching .durable
 * the only component that messes with .data files that don't have matching .durable files is the reconstructor
 * when a proxy does a GET, it will only receive fragment archives that have enough present somewhere to be reconstructed
 
 3.3.3.8: Create common interface for proxy-->nodes
+
+NOTE:  This ain't gonna happen as part of the EC effort
 
 Creating a common module that allows for abstracted access to the a/c/s nodes would not only clean up
 much of the proxy IO path but would also prevent the introduction of EC from further
@@ -288,9 +289,8 @@ be merged).
 
 3.3.3.6: Object overwrite and PUT error handling
 
-What's needed here is a mechanism to assure that we can handle partial write failures, more
-specifically: ( Note:  in both cases the client will get a failure back however without additional changes,
-each storage node that saved a EC fragment archive will effectively have an orphan.)
+What's needed here is a mechanism to assure that we can handle partial write failures. Note: in both cases the client will get a failure back however without additional changes,
+each storage node that saved a EC fragment archive will effectively have an orphan.
 
 a) less than a quorum of nodes is written
 b) quorum is met but not all nodes were written
@@ -302,7 +302,7 @@ for details).
 
 **High Level Flow**
 
-* If storing an EC archive fragment, the object server should not delete older .data file.  This patch is in review.
+* If storing an EC archive fragment, the object server should not delete older .data file unless it has a new one with a matching .durable.
 * When the object server handles a GET, it needs to send header to the proxy that include all available timestamps for the .data file
 * If the proxy determines is can reconstruct the object with the latest timestamp (can reach quorum) it proceeds
 * If quorum cant be reached, find timestamp where quorum can be reached, kill existing connections (unless the body of that request was the found timestamp), and make new connections requesting the specific timestamp
@@ -331,6 +331,8 @@ TODO - add high level flow
 
 3.3.5 **Metadata**
 
+NOTE:  Some of these metadata names are different in the code...
+
 Additional metadata is part of the EC design in a few different areas:
 
 * New metadata is introduced in each 'fragment' that is opaque to Swift, it is used by PyECLib for internal purposes.
@@ -347,25 +349,9 @@ The object metadata will need to be stored as system metadata.
 3.3.6 **Database Updates**
 
 We don't need/want container updates to be sent out by every storage node
-participating in the EC set.  Current thinking is that if we limit the
-number to the number of parity fragments for the scheme then we'll be on
-par with replication.  Meaning, if you lose N nodes you can't do container
-updates and the N for replication is just the replication factor where for
-EC its the number of parity fragments.
-
-For EC we'll base the number on the quorum value which is available via a
-policy method. So, when its time to do account/container updates, only
-X = (total - quorum) of the nodes participating in the EC scheme should actually
-perform the updates.
-
-To start with just the first X would work however there are likely some
-optimizations in this are to explore during implementation including deciding
-when we want to do the DB updates in the first place (see Trello discussion card
-for more info)
-
-`Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
-
-* 3.3.6.1: Acct/Cont DB Updates
+participating in the EC set and actually that is exactly how it will work
+without any additional changes, see _backend_requests() in the proxy
+PUT path for details.
 
 3.3.7 **The Reconstructor**
 
@@ -383,23 +369,26 @@ The key concepts in the reconstructor design are:
 * Highly leverage ssync to gain visibility into which EC archive(s) are needed (some ssync mods needed, consider renaming the verb REPLICATION since ssync can be syncing in different ways now
 * Minimal changes to existing replicator framework, auditor, ssync
 * Implement as new reconstructor daemon (much reuse from replicator) as there will be some differences and we will want separate logging and daemon control/visibility for the reconstructor
-* There is no required ordering between a fragment archive index and which primary/handoff node it lives on.
 * Nodes in the list only act on their neighbors with regards to reconstruction (nodes don't talk to all other nodes)
+* Once a set of EC archives has been placed, the ordering/matching of the fragment index to the index of the node in the primary partition list must be maintained for handoff node usage
+* EC archives are stored with their fragment index encoded in the filename
 
 **Reconstructor framework**
 
 The current implementation thinking has the reconstructor live as its own daemon so
 that it has independent logging and controls.  Its structure borrows heavily from
-the replicator (ssync).
+the replicator.
 
 The reconstructor will need to do a few things differently than the replicator,
-above and beyond the obvious EC functions.  Because each EC archive has
-the same hash and filename, it can be a little confusing trying to trace through the
-various failure scenarios.  The key point to understand is that a storage node
-does not need to know which fragment archive index it is holding (most of the time)
-because PyECLib will always do the right thing based on what fragments its been
-given, recall that there is PyECLib specific metdata embedded in each fragment. The
-only time when the fragment index is needed by the reconstructor is on update_delete().
+above and beyond the obvious EC functions.  The major differences are:
+
+* there is no longer the concept of 2 job processors that either sync or revert, instead there is a job pre-processor that figures out what needs to be done and one job processor carries out the actions needed
+* syncs only with nodes to the left and right on the partition list (not with all nodes)
+* for reversion, syncs with as many nodes as needed as determined by the fragment indexes that it is holding; the number of nodes will be equivalent to the number of unique fragment indexes that it is holding.  It will use those indexes as indexes into the primary node list to determine which nodes to sync to.
+
+**Node/Index Pairing**
+
+The following are some scenarios that help explain why the node/fragment index pairing is so important for both of the operations just mentioned.
 
 .. image:: images/handoff1.png
 
@@ -407,13 +396,77 @@ Next Scenario:
 
 .. image:: images/handoff2.png
 
-**Ssync changes per spec sequence diagram**
+**Fragment Index Filename Encoding**
 
-The following picture shows what the ssync changes to enable reconstruction.
+Each storage policy now must include a transformation function that diskfile will use to build the
+filename to store on disk.  This is required by the reconstructor for a few reasons.  For one, it
+allows us to store fragment archives of different indexes on the same storage node.  This is not
+hone in the happy path however is possible in some circumstances.  Without unique filenames for
+the different EC archive files in a set, we would be at risk of overwriting one archive of index
+n with another of index m in some scenarios.
+
+The transformation function for the replication policy is simply a NOP.  For reconstruction, the index
+is appended to the filename just before the .data extension.  An example filename for a fragment
+archive storing the 5th fragment would like this this::
+
+    1418673556.92690#5.data
+
+**Diskfile Refactoring**
+
+In order to more cleanly accomodate some of the low level on disk storage needs of EC (file names, .durable, etc)
+diskfile has some additional layering introduced allowing those functions that need EC specific changes to be
+isolated.  TODO:  Add detail here.
+
+**Reconstructor Job Pre-processing**
+
+Because any given suffix directory may contain more than one fragment archive index data file,
+the actions that the reconstructor needs to take are not as simple as either syncing or reverting
+data as is done with the replicator.  Because of this, it is more efficient for the reconstructor
+to analyze what needs to be done on a per part/suffix/fragment index basis and then schedules a
+series of jobs that are executed by a single job processor (as opposed to having to clear scenarios
+of sync and revert as with the replicator).  The main scenarios that the pre-processor is
+looking at:
+
+#) part dir with all FI's matching the local node index this is the case where everything is where it belongs and we just need to compare hashes and sync if needed, here we sync with our partners
+#) part dir with one local and mix of others here we need to sync with our partners where FI matches the lcoal_id  , all others are sync'd with their home nodes and then killed
+#) part dir with no local FI and just one or more others here we sync with just the FI that exists, nobody else and then all the local FAs are killed
+
+So the main elements of a job that the job processor is handed include a list of exactly who to talk
+to, which suffix dirs are out of sync and which fragment index to care about.  Additionally the job
+includes information used by both ssync and the reconstructor to delete, as required, .data files on
+the source node as needed.  Basically the work done by the job processor is a hybrid of what the
+replicator does in update() and update_deleted().
+
+**The Act of Reconstruction**
+
+Reconstruction can be thought of sort of like replication but with an extra step
+in the middle.  The reconstructor is hard-wired to use ssync to determine what
+is missing and desired by the other side however before an object sent over the
+wire it needs to be reconstructed from the remaining fragments as the local
+fragment is just that - a different fragment index than what the other end is
+asking for.
+
+Thus there are hooks in ssync for EC based policies.  One case would be for
+basic reconstruction which, at a high level, looks like this:
+
+* ask PyECLib which nodes need to be contacted to collect other EC archives needed to perform reconstruction
+* establish a connection to the target nodes and give ssync a DiskFileLike class that it can stream data from.  The reader in this class will gather fragments from the nodes and use PyECLib to rebuild each segment before yielding data back to ssync
+
+Essentially what this means is that data is buffered, in memory, on a per segment basis
+at the node performing reconstruction and each segment is dynamically reconstructed and
+delivered to ssync_sender where the send_put() method will ship them on over.
+
+The following picture shows what the ssync changes to enable reconstruction.  Note that
+there are several implementation details not covered here having to do with things like
+making sure that the correct fragment archive indexes are used, getting the metadata
+correctly setup for the reconstructed object, deleting files/suffix dirs as needed
+after reversion, etc., etc.
 
 .. image:: images/recon.png
 
 **Reconstructor local data file cleanup**
+
+NOTE:  This section is outdated, needs to be scrubbed.  Do not read...
 
 For the reconstructor cleanup is a bit different than replication because, for PUT consistency
 reasons, the object server is going to keep the previous .data file (if it existed) just
@@ -450,45 +503,7 @@ somehow so we don't keep trying to reconstruct is TBD.
 **Reconstructor rebalance**
 
 Current thinking is that there should be no special handling here above and beyond the changes
-described in the handoff reversion section.  From the view of the reconstructor these opeartions
-are the same.  The scenario shown below is an example of what can happen during rebalance.
-
-.. image:: images/rebal.png
-
-**Reconstructor handoff reversion**
-
-An update_delete() can shuffle fragment archives such that their indices no longer
-line up with their fragment archives.  This can happen as a result of either handoff reversion or
-a rebalance and the design described here addresses both and has no limitations on the number
-of fragment archives that get shuffled.  See the previous section on rebalance for a picture
-of how shuffling can happen.  The following algorithm assures that each fragment that needs to
-be moved to a new node, ends up in a unique location.
-
-In update_delete() processing, the reconstructor will HEAD the fragment archive in question
-at all nodes in the node list provided in the job and use fragment indices as to index into
-an array where the node_id from the job at that position.  For nodes that do not have
-the fragment archive present, a placeholder is left in the array.  After all nodes have
-been heard from, those without a fragment archive are placed in order into the placeholder
-positions in the array.
-
-The reconstructor then gets the metadata from the local fragment archive and uses it as an
-index into the array to determine which node it should move its local fragment archive to.
-
-In this manner, each reconstructor running an update_delete() job is performing a minimal
-HEAD to the rest of the nodes and using this data, along with its local information to assure
-independent unique placement (movement) of the fragment archive that it is moving.
-
-In the example described in the rebalance section, the following would be created:
-
-building up: [0, 1, 2, -1, -1]
-
-after hearing from all nodes, adding in nodes without archives in order; [0, 1, 2, 5, 6]
-
-and then node3 would see that it has fragment index 3 so choose the 4th location in the
-dictionary, dummy1, and select node5.  Node4 should choose the 5th location, node6.
-
-TODO:  the example above could be a little clearer (more nodes, things with mixed order
-in the middle of the list instead of at the end...)
+described in the handoff reversion section.
 
 **Reconstructor concurrency**
 
@@ -643,11 +658,11 @@ We want to make sure its easy for the SAIO environment to be used for EC develop
 and experimentation.  Just as we did with policies, we'll want to update both docs
 and scripts once we decide what exactly what we want it to look like.
 
-For now lets start with 6 total nodes and a 2+2+2 scheme (2 data, 2 parity, 2 handoffs)
+For now lets start with 8 total nodes (4 servers) and a 4+2+2 scheme (4 data, 2 parity, 2 handoffs)
 
 `Trello <https://trello.com/b/LlvIFIQs/swift-erasure-codes>`_ Tasks for this section::
 
-* 3.3.13.1: SAIO Updates
+* 3.3.13.1: SAIO Updates (IMPLEMENTED)
 
 3.4 Alternatives
 ----------------
