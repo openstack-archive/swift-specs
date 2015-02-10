@@ -34,11 +34,9 @@ Goal 1: an attacker who gains read access to Swift's object servers'
 filesystems should gain as little useful data as possible. This
 provides confidentiality for users' data.
 
-Goal 2: it should be possible to completely remove an object so that
-it cannot be recovered by deleting the key. This requires support from
-the keymaster for key deletion. This provides a guarantee that an
-object is not retained (in a recoverable form) any longer than
-necessary.
+Goal 2: when a keymaster implementation allows for secure deletion of keys,
+then the deletion of an object's key shall render the object irrecoverable.
+This provides a means to securely delete an object.
 
 Not Goals / Possible Future Work
 --------------------------------
@@ -123,35 +121,62 @@ object, container, or account.
 
 With unencrypted objects, the object server is responsible for
 validating any Etag header sent by the client on a PUT request; the
-Etag header's value is the MD5 hash of the uploaded object data. With
-encrypted objects, the plaintext is not available to the object
-server, so the encrypter must perform the validation instead.
+Etag header's value is the MD5 hash of the uploaded object data.
+
+With encrypted objects, the plaintext is not available to the object server, so
+the encrypter must perform the validation instead by calculating the MD5 hash
+of the object data and validating this against any Etag header sent by the
+client - if the two do not match then the encrypter should immediately return a
+response with status 422.
+
+Assuming that the computed MD5 hash of plaintext is validated, the encrypter
+will encrypt this value and pass to the object server to be stored as system
+metadata. Since the validated value will not be available until the plaintext
+stream has been completely read, this metadata will be sent using a 'request
+footer', as described in section 7.2.
+
+If the client request included an Etag header then the encrypter should also
+compute the MD5 hash of the ciphertext and include this value in an Etag
+request footer. This will allow the object server to validate the hash of the
+ciphertext that it receives, and so complete the end-to-end validation
+requirement implied by the client sending an Etag: encrypter validates client
+to proxy communication, object server validates proxy to object server
+communication.
+
 
 2.2 Inter-Middleware Communication
 ----------------------------------
 
-The keymaster communicates the encryption key to the encrypter and
-decrypter middlewares by placing a zero-argument callable in the WSGI
-environment dictionary at the key "swift.crypto.fetch_crypto_keys".
-When called, this will return the key(s) necessary to process the
-current request. It must be present on any GET or HEAD request for an
-account, container, or object which contains any encrypted data or
-metadata. If encrypted data or metadata is encountered while
-processing a GET or HEAD request but fetch_crypto_keys is not present
-_or_ it does not return keys when called, then this is an error and
-the client will receive a 500-series response.
+The keymaster is responsible for deciding if any particular resource should be
+encrypted. This decision is implementation dependent but may be based, for
+example, on container policy or account name. When a resource is not to be
+encrypted the keymaster will set the key `swift.crypto.override` in the request
+environ to indicate to the encrypter middleware that encryption is not
+required.
 
-On a PUT or POST request, the keymaster must place fetch_crypto_keys in
-the WSGI environment during request processing; that is, before
-passing the request to the remainder of the middleware pipeline. This
-is so that the encrypter can encrypt the object's data in a streaming
-fashion without buffering the whole object.
+When encryption is required, the keymaster communicates the encryption key to
+the encrypter and decrypter middlewares by placing a zero-argument callable in
+the WSGI environment dictionary at the key "swift.crypto.fetch_crypto_keys".
+When called, this will return the key(s) necessary to process the current
+request. It must be present on any GET or HEAD request for an account,
+container, or object which contains any encrypted data or metadata. If
+encrypted data or metadata is encountered while processing a GET or HEAD
+request but fetch_crypto_keys is not present _or_ it does not return keys when
+called, then this is an error and the client will receive a 500-series
+response.
 
-On a GET or HEAD request, the keymaster must place fetch_crypto_keys in
-the WSGI environment before returning control to the decrypter. It
-need not be done at request-handling time. This lets attributes of the
-key be stored in sysmeta, for example the key ID in an external
-database, or anything else the keymaster wants.
+On a PUT or POST request, the keymaster must place
+"swift.crypto.fetch_crypto_keys" in the WSGI environment during request
+processing; that is, before passing the request to the remainder of the
+middleware pipeline. This is so that the encrypter can encrypt the object's
+data in a streaming fashion without buffering the whole object.
+
+On a GET or HEAD request, the keymaster must place
+"swift.crypto.fetch_crypto_keys" in the WSGI environment before returning
+control to the decrypter. It need not be done at request-handling time. This
+lets attributes of the key be stored in sysmeta, for example the key ID in an
+external database, or anything else the keymaster wants.
+
 
 3. Cipher Choice
 ================
@@ -164,8 +189,9 @@ Swift will use AES in CTR mode with 256-bit keys.
 In order to allow for ranged GET requests, the cipher shall be used
 in counter (CTR) mode.
 
-The entire object shall be encrypted as a single byte stream. The IV
-will be randomly generated and stored in system metadata.
+The entire object body shall be encrypted as a single byte stream. The
+initialization vector (IV) used for encrypting the object body will be randomly
+generated and stored in system metadata.
 
 
 3.2. Why AES-256-CTR
@@ -194,6 +220,13 @@ The cipher and mode will be stored in system metadata on every
 encrypted object. This way, when Swift gains support for other ciphers
 or modes, existing objects can still be decrypted.
 
+In general we must assume that any resource (account/container/object metadata
+or object data) in a Swift cluster may be encrypted using a different cipher,
+or not encrypted. Consequently, the cipher choice must be stored as metadata of
+every encrypted resource, along with the IV. Since user metadata may be updated
+independently of objects, this implies storing encryption related metadata of
+metadata.
+
 
 4. Robustness
 =============
@@ -202,13 +235,12 @@ or modes, existing objects can still be decrypted.
 4.1 No Key
 ----------
 
-If the keymaster fails to add a key to the WSGI environment, then the
-client will receive the ciphertext of the object instead of the
-plaintext, which looks to the client like garbage. However, we can
-tell if an object is encrypted or not by the presence of system
-metadata headers, so the decrypter can prevent this by raising an
-error if no key was provided for the decryption of an encrypted
-object.
+If the keymaster fails to add "swift.crypto.fetch_crypto_keys" to the WSGI
+environment of a GET request, then the client would receive the ciphertext of
+the object instead of the plaintext, which looks to the client like garbage.
+However, we can tell if an object is encrypted or not by the presence of system
+metadata headers, so the decrypter can prevent this by raising an error if no
+key was provided for the decryption of an encrypted object.
 
 
 5. Multiple Keymasters
@@ -253,15 +285,38 @@ Swift will probably want a keymaster that stores things in Barbican at
 some point.
 
 
-6. Metadata Encryption
+6 Encryption of Object Body
+===========================
+
+Each object is encrypted with the key from the keymaster. A new IV is
+randomly generated by the encrypter for each object body.
+
+The IV and the choice of cipher is stored using sysmeta. For the following
+discussion we shall refer to the choice of cipher and IV collectively as
+"crypto metadata".
+
+The crypto metadata for object body can be stored as an item of sysmeta that
+the encrypter adds to the object PUT request headers, e.g.::
+
+  X-Object-Sysmeta-Crypto-Meta: "{'iv': 'xxx', 'cipher': 'AES_CTR_256'}"
+
+.. note::
+    Here, and in following examples, it would be possible to omit the
+    ``'cipher'`` keyed item from the crypto metadata until a future
+    change introduces alternative ciphers. The existence of any crypto metadata
+    is sufficient to infer use of the 'AES_CTR_256' unless otherwise specified.
+
+
+7. Metadata Encryption
 ======================
 
-6.1 Background
+7.1 Background
 --------------
+
 Swift entities (accounts, containers, and objects) have three kinds of
 metadata.
 
-First, there is basic metadata, like Content-Length, Content-Type, and
+First, there is basic object metadata, like Content-Length, Content-Type, and
 Etag. These are always present and user-visible.
 
 Second, there is user metadata. These are headers starting with
@@ -280,42 +335,92 @@ is intended for use by Swift middleware to safely store data away from
 the prying eyes and fingers of users.
 
 
-6.2 User Metadata on Objects
-----------------------------
+7.2 Basic Object Metadata
+-------------------------
 
-Not only the contents of an object are sensitive; metadata is
-sensitive too. User metadata will be encrypted with the same key and
-IV as the rest of the metadata. Since metadata values must be valid
-UTF-8 strings, the encrypted values will be suitably encoded (probably
-base64) for storage. In order to preserve the current user-metadata
-length limits despite the bloat caused by encoding, the encrypter will
-actually store the ciphertext of the user's metadata values in system
-metadata. That way, users don't see lower metadata-size limits when
-encryption is in use.
+An object's plaintext etag and content type are sensitive information and will
+be stored encrypted, both in the container listing and in the object's
+metadata. To accomplish this, the encrypter middleware will actually encrypt
+the etag and content type _twice_: once with the object's key, and once with
+the container's key.
 
-This means that the encrypter is responsible for enforcing
-user-metadata limits on encrypted objects, as it is the last entity in
-the middleware pipeline to see plaintext user metadata.
+There must be a different IV used for each different encrypted header.
+Therefore, crypto metadata will be stored for the etag and content_type::
 
-Both metadata names and values will be encrypted. Leaving
-"X-Object-Sysmeta-UM-Preferred-Contraband-Vendor: Y7JF30oF5TXTeEIqOu8="
-on disk is just not good enough.
+  X-Object-Sysmeta-Crypto-Meta-ct: "{'iv': 'xxx', 'cipher': 'AES_CTR_256'}"
+  X-Object-Sysmeta-Crypto-Meta-Etag: "{'iv': 'xxx', 'cipher': 'AES_CTR_256'}"
 
-Further, the object's plaintext etag and content type are sensitive
-information and will be stored encrypted as well, both in the
-container listing and in the object's metadata. To accomplish this,
-the proxy server will actually encrypt the etag and content type
-_twice_: once with the object's key, and once with the container's
-key. When the object server updates the container database after
-finishing a PUT request, it will send the container-key-encrypted
-values over to the container. The object-key-encrypted values will be
-stored in the object's metadata. This way, the client sees the
-plaintext etag and content type in container listings and in object
-GET or HEAD responses, just like it would without encryption enabled,
-but the plaintext values of those are not stored anywhere.
+The object-key-encrypted values will be sent to the object server using
+``X-Object-Sysmeta-Crypto-Etag`` and ``Content-Type`` headers that will be
+stored in the object's metadata.
 
+The container-key-encrypted etag and content-type values will be sent to the
+object server using header names ``X-Backend-Container-Update-Override-Etag``
+and ``X-Backend-Container-Update-Override-Content-Type`` respectively. Existing
+object server behavior is to then use these values in the ``X-Etag`` and
+``X-Content-Type`` headers included with the container update sent to the
+container server.
 
-6.2.1 A Note On Etag
+When handling a container GET request, the decrypter must process the container
+listing and decrypt every occurrence of an Etag or Content-Type using the
+container key. When handling an object GET or HEAD, the decrypter must decrypt
+the values of ``X-Object-Sysmeta-Crypto-Etag`` and
+``X-Object-Sysmeta-Crypto-Content-Type`` using the object key and copy these
+value to the ``Etag`` and ``Content-Type`` headers returned to the client.
+
+This way, the client sees the plaintext etag and content type in container
+listings and in object GET or HEAD responses, just like it would without
+encryption enabled, but the plaintext values of those are not stored anywhere.
+
+.. note::
+    The encrypter will not know the value of the plaintext etag until it has
+    processed all object content. Therefore, unless the encrypter buffers the
+    entire object ciphertext (!) it cannot send the encrypted etag headers to
+    object servers before the request body. Instead, the encrypter will emit a
+    multipart MIME document for the request body and append the encrypted etag
+    as a 'request footer'. This mechanism will build on the use of
+    multipart MIME bodies in object server requests introduced by the Erasure
+    Coding feature [1].
+
+For basic object metadata that is encrypted (i.e. etag and content-type), the
+object data crypto metadata will apply, since this basic metadata is only set
+by an object PUT. However, the encrypted copies of basic object metadata that
+are forwarded to container servers with container updates will require
+accompanying crypto metadata to also be stored in the container server DB
+objects table. To avoid significant code churn in the container server, we
+propose to append the crypto metadata to the basic metadata value string.
+
+For example, the Etag header value included with a container update will have
+the form::
+
+  Etag: E(CEK, <etag>); meta={'iv': 'xxx', 'cipher': 'AES_CTR_256'}
+
+where ``E(CEK, <etag>)`` is the ciphertext of the object's etag encrypted with
+the container key (``CEK``).
+
+When handling a container GET listing, the decrypter will need to parse each
+etag value in the listing returned from the container server and transform its
+value to the plaintext etag expected in the response to the client. Since a
+'regular' plaintext etag is a fixed length string that cannot contain the ';'
+character, the decrypter will be able to easily differentiate between an
+unencrypted etag value and an etag value with appended crypto metadata that by
+design is always longer than a plaintext etag.
+
+The crypto metadata appended to the container update etag will also be valid
+for the encrypted content-type ``E(CEK, <content-type>)`` since both are set at
+the same time. However, other proposed work [2] makes it possible to update the
+object content-type with a POST, meaning that the crypto metadata associated
+with content-type value could be different to that associated with the etag. We
+therefore propose to similarly append crypto metadata in the content-type value
+that is destined for the container server:
+
+   Content-Type: E(CEK, <content-type>); meta="{'iv': 'yyy', 'cipher': 'AES_CTR_256'}"
+
+In this case the use of the ';' separator character will allow the decrypter to
+parse content-type values in container listings and remove the crypto metadata
+attribute.
+
+7.2.1 A Note On Etag
 ^^^^^^^^^^^^^^^^^^^^
 
 In the stored object's metadata, the basic-metadata field named "Etag"
@@ -328,8 +433,59 @@ The plaintext's MD5 hash will be stored, encrypted, in system
 metadata.
 
 
-6.3 System Metadata
+7.3 User Metadata
+-----------------
+
+Not only the contents of an object are sensitive; metadata is sensitive too.
+Since metadata values must be valid UTF-8 strings, the encrypted values will be
+suitably encoded (probably base64) for storage. Since this encoding may
+increase the size of user metadata values beyond the allowed limits, the
+metadata limit checking will need to be implemented by the encrypter
+middleware. That way, users don't see lower metadata-size limits when
+encryption is in use. The encrypter middleware will set a request environ key
+`swift.constraints.override` to indicate to the proxy-server that limit
+checking has already been applied.
+
+User metadata names will *not* be encrypted. Since a different IV (or indeed a
+different cypher) may be used each time metadata is updated by a POST request,
+encrypting metadata names would make it impossible for Swift to delete
+out-dated metadata items. Similarly, if encryption is enabled on an existing
+Swift cluster, encrypting metadata names would prevent previously unencrypted
+metadata being deleted when updated.
+
+For each piece of user metadata on objects we need to store crypto metadata,
+since all user metadata items are encrypted with a different IV. This cannot
+be stored as an item of sysmeta since sysmeta cannot be updated by an object
+POST. We therefore propose to modify the object server to persist the headers
+``X-Object-Massmeta-Crypto-Meta-*`` with the same semantic as ``X-Object-Meta-*``
+headers i.e. ``X-Object-Massmeta-Crypto-Meta-*`` will be updated on every POST
+and removed if not present in a POST. The gatekeeper middleware will prevent
+``X-Object-Massmeta-Crypto-Meta-*`` headers ever being included in client
+requests or responses.
+
+The encrypter will add a ``X-Object-Massmeta-Crypto-Meta-<key>`` header 
+to object PUT and POST request headers for each piece of user metadata, e.g.::
+
+  X-Object-Massmeta-Crypto-Meta-<key>: "{'iv': 'zzz', 'cipher': 'AES_CTR_256'}"
+
+.. note::
+   There is likely to be value in adding a generic mechanism to persist *any*
+   header in the ``X-Object-Massmeta-`` namespace, and adding that prefix to
+   those blacklisted by the gatekeeper. This would support other middlewares
+   (such as a keymaster) similarly annotating user metadata with middleware
+   generated metadata.
+
+For user metadata on containers and accounts we need to store crypto metadata
+for each item of user metadata, since these can be independently updated by
+POST requests. Here we can use sysmeta to store the crypto metadata items,
+e.g. for a user metadata item with key ``X-Container-Meta-Color`` we would
+store::
+
+  X-Container-Sysmeta-Crypto-Meta-Color: "{'iv': 'ccc', 'cipher': 'AES_CTR_256'}"
+
+7.4 System Metadata
 -------------------
+
 System metadata ("sysmeta") will not be encrypted.
 
 Consider a middleware that uses sysmeta for storage. If, for some
@@ -341,25 +497,62 @@ Since middlewares sometimes do move, either due to code changes or to
 correct an erroneous configuration, we prefer robustness of the
 storage system here.
 
+7.5 Summary
+-----------
 
-6.4 Encryption of Object Data
------------------------------
+The encrypter will set the following headers on PUT requests to object
+servers::
 
-Each object is encrypted with the key from the keymaster. The IV is
-randomly generated by the encrypter, and (as mentioned earlier), is
-stored in system metadata.
+  Etag = MD5(ciphertext) (IFF client request included an etag header)
+  X-Object-Sysmeta-Crypto-Meta-Etag = {'iv': <iv>, 'cipher': <C_req>}
 
-7. Client-Visible Changes
+  Content-Type = E(OEK, content-type)
+  X-Object-Sysmeta-Crypto-Meta-ct = {'iv': <iv>, 'cipher': <C_req>}
+
+  X-Object-Sysmeta-Crypto-Meta = {'iv': <iv>, 'cipher': <C_req>}
+  X-Object-Sysmeta-Crypto-Etag = E(OEK, MD5(plaintext))
+
+  X-Backend-Container-Update-Override-Etag = \
+      E(CEK, MD5(plaintext); meta={'iv': <iv>, 'cipher': <C_req>}
+  X-Backend-Container-Update-Override-Content-Type = \
+      E(CEK, content-type); meta={'iv': <iv>, 'cipher': <C_req>}
+
+where ``OEK`` is the object encryption key, ``iv`` is a randomly chosen
+initialization vector and ``C_req`` is the cipher used while handling this
+request.
+
+Additionally, on object PUT or POST requests that include user defined
+metadata headers, the encrypter will set::
+
+  X-Object-Meta-<user_key> = E(OEK, <user_value>}  for every <user-key>
+  X-Object-Massmeta-Crypto-Meta-<user_key> = {'iv': <iv>, 'cipher': <C_req>}
+
+On PUT or POST requests to container servers, the encrypter will set the
+following headers for each user defined metadata header::
+
+  X-Container-Meta-<user_key> = E(CEK, <user_value>}
+  X-Container-Sysmeta-Crypto-Meta-<user_key> = {'iv': <iv>, 'cipher': <C_req>}
+
+Similarly, on PUT or POST requests to account servers, the encrypter will set
+the following headers for each user defined metadata header::
+
+  X-Account-Meta-<user_key> = E(AEK, <user_value>}
+  X-Account-Sysmeta-Crypto-Meta-<user_key> = {'iv': <iv>, 'cipher': <C_req>}
+
+where ``AEK`` is the account encryption key.
+
+
+8. Client-Visible Changes
 =========================
 
 There are no known client-visible API behavior changes in this spec.
 If any are found, they should be treated as flaws and fixed.
 
 
-8. Possible Future Work
+9. Possible Future Work
 =======================
 
-8.1 Protection of Internal Network
+9.1 Protection of Internal Network
 ----------------------------------
 
 Swift's security model is perimeter-based: the proxy server handles
@@ -383,14 +576,14 @@ have always had encryption on, which (sadly) excludes clusters that
 pre-date encryption support.
 
 
-8.2 Other ciphers
+9.2 Other ciphers
 -----------------
 
 AES-256 may be considered inadequate at some point, and support for
 another cipher will then be needed.
 
 
-8.3 Client-Managed Keys
+9.3 Client-Managed Keys
 -----------------------
 
 CPU-constrained clients may want to manage their own encryption keys
@@ -398,7 +591,7 @@ but have Swift perform the encryption. Amazon S3 supports something
 like this. Client-managed key support would probably take the form of
 a new keymaster.
 
-8.4 Re-Keying Support
+9.4 Re-Keying Support
 ---------------------
 
 Instead of using the object key K-obj and computing the ciphertext as
@@ -410,3 +603,64 @@ metadata, Swift would store E(KEK, DEK). This way, if we wish to
 re-key objects, we can decrypt and re-encrypt the DEK to do it, thus
 turning a re-key operation from a full read-modify-write cycle to a
 simple metadata update.
+
+
+Alternatives
+============
+
+Storing user metadata in sysmeta
+--------------------------------
+
+To avoid the need to check metadata header limits in the encrypter, encrypted
+metadata values could be stored using sysmeta, which is not subject to the same
+limits. When handling a GET or HEAD response, the decrypter would need to
+decrypt metadata values and copy them back to user metadata headers.
+
+This alternative was rejected because object sysmeta cannot be updated by a
+POST request, and so Swift would be restricted to operating in the POST-as-copy
+mode when encryption is enabled.
+
+Enforce a single immutable cipher choice per container
+------------------------------------------------------
+
+We could avoid storing cipher choice as metadata on every resource (including
+individual metadata items) if the choice of cipher were made immutable for a
+container or even for an account. Unfortunately it is hard to implement an
+immutable property in an eventually consistent system that allows multiple
+concurrent operations on distributed replicas of the same resource.
+
+Container storage policy is 'eventually immutable' (any inconsistency is
+eventually reconciled across replicas and no replica's policy state may be
+updated by a client request). If we made cipher choice a property of a policy
+then the cipher for a container could be similarly 'eventually immutable'.
+However, it would be possible for objects in the same container to be encrypted
+using different ciphers during the any initial window of policy inconsistency
+immediately after the container is first created. The existing container policy
+reconciler process would need to re-encrypt any object found to have used the
+'wrong' cipher, and to do so it would need to know which cipher had been used
+for each object, which leads back to cipher choice being stored per-object.
+
+It should also be noted that the IV would still need to be stored for every
+resource, so this alternative would not mitigate the need to store crypto
+metadata in general.
+
+Furthermore, binding cipher choice to container policy does not provide a means
+to guarantee an immutable cipher choice for account metadata.
+
+Implementation
+==============
+
+Assignee(s)
+-----------
+
+Primary assignees:
+
+|    jrichli@us.ibm.com
+|    alistair.coles@hp.com
+
+
+References
+==========
+[1] http://specs.openstack.org/openstack/swift-specs/specs/done/erasure_coding.html
+
+[2] Updating containers on object fast-POST: https://review.openstack.org/#/c/102592/
