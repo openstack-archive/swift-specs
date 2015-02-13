@@ -313,15 +313,15 @@ example:
    requests to the underlying object-server app in addition to PUT and
    DELETE requests.
 
-The current ssync implementation seems to indicate that it was not originally
-intended to be optimized for the non-default POST-as-COPY configuration, and it
-does not handle some corner cases as well as rsync replication.  Because ssync
-is still described as experimental, improving ssync support should not be a
-requirement for resolving the current limitations of fast-POST for rsync
-deployments.  However ssync is still actively being developed and improved, and
-remains a key component to a number of other efforts improve and enhance Swift.
-Full ssync support for fast-POST should be a requirement for making fast-POST
-the default.
+The current ssync implementation seems to indicate that it was originally
+intended to be optimized for the default POST-as-COPY configuration, and it
+does not handle some corner cases with fast-POST as well as rsync replication.
+Because ssync is still described as experimental, improving ssync support
+should not be a requirement for resolving the current limitations of fast-POST
+for rsync deployments.  However ssync is still actively being developed and
+improved, and remains a key component to a number of other efforts improve and
+enhance Swift.  Full ssync support for fast-POST should be a requirement for
+making fast-POST the default.
 
 .. _container-sync:
 
@@ -703,7 +703,7 @@ We can simplify the management of .meta files by requiring every POST arriving
 at an object server to include the content-type, and therefore remove the need
 to maintain a separate content-type-timestamp. There would be no need to
 maintain multiple meta files. Container updates would still need to be sent
-during an object PUT in order to keep the container server in sync with the
+during an object POST in order to keep the container server in sync with the
 object state. The container server still needs to be modified to merge both
 content-type and metadata-timestamps with an existing row.
 
@@ -725,6 +725,12 @@ If, as a development of this alternative, the proxy were also to read the
 add both of these items to the backend object POST, then we are get back to the
 object server needing to maintain separate content-type and metadata-timestamps
 in .meta file.
+
+Further, if the newest content-type in the system is unavailable during a POST
+it would be lost, and worse yet if the latest value was associated with a
+datafile there's no obvious way to correctly promote it's data timestamp
+values in the containers short of doing the very merging described in this
+spec - so it comes out as less desirable for the same amount of work.
 
 Use the metadata-timestamp as last modified
 -------------------------------------------
