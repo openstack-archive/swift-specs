@@ -35,6 +35,13 @@ approved and merged as soon as possible, and spec documents in the
    moved to the ``done`` directory. If a feature needs a spec, it needs
    docs, and the docs must land before or with the feature (not after).
 
+How to ask questions and get clarifications about a spec
+========================================================
+Naturally you'll want clarifications about the way a spec is written. To ask
+questions, propose a patch to the spec (via the normal patch proposal tools)
+with your question or your understanding of the confusing part. That will
+raise the issue in a patch review and allow everyone to answer or comment.
+
 Learn As We Go
 ==============
 This is a new way of attempting things, so we're going to be low in
