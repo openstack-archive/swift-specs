@@ -35,6 +35,7 @@ WIP Revision History:
 * 12/16: reconstructor updates, few minor updates throughout.
 * 2/3: reconstructor updates
 * 3/23: quick scrub to bring things in line w/current implementation
+* 4/14:  Ec has been merged to master.  Some parts of this spec are no longer the authority on the design, please review code on master and user documentation.
 
 1. Summary
 ----------
