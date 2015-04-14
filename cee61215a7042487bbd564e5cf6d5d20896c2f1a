@@ -1,0 +1,8 @@
+Verified+2: Jenkins
+Code-Review+2: John Dickinson <me@not.mn>
+Workflow+1: John Dickinson <me@not.mn>
+Submitted-by: Jenkins
+Submitted-at: Tue, 14 Apr 2015 21:21:46 +0000
+Reviewed-on: https://review.openstack.org/173503
+Project: openstack/swift-specs
+Branch: refs/heads/master
