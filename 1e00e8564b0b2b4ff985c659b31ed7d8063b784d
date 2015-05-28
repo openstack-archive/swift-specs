@@ -1,0 +1,10 @@
+Verified+2: Jenkins
+Code-Review+2: Matthew Oliver <matt@oliver.net.au>
+Workflow+1: Matthew Oliver <matt@oliver.net.au>
+Code-Review+1: Hisashi Osanai <osanai.hisashi@jp.fujitsu.com>
+Code-Review+1: Thiago Gomes <thiago.gomes@lsbd.ufc.br>
+Submitted-by: Jenkins
+Submitted-at: Thu, 28 May 2015 06:24:48 +0000
+Reviewed-on: https://review.openstack.org/152935
+Project: openstack/swift-specs
+Branch: refs/heads/master
