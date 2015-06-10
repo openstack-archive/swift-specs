@@ -1,0 +1,10 @@
+Verified+2: Jenkins
+Code-Review+2: Samuel Merritt <sam@swiftstack.com>
+Code-Review+2: Matthew Oliver <matt@oliver.net.au>
+Workflow+1: Matthew Oliver <matt@oliver.net.au>
+Code-Review+1: Janie Richling <jrichli@us.ibm.com>
+Submitted-by: Jenkins
+Submitted-at: Wed, 10 Jun 2015 04:07:09 +0000
+Reviewed-on: https://review.openstack.org/154318
+Project: openstack/swift-specs
+Branch: refs/heads/master
