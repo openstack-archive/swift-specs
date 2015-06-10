@@ -35,6 +35,23 @@ approved and merged as soon as possible, and spec documents in the
    moved to the ``done`` directory. If a feature needs a spec, it needs
    docs, and the docs must land before or with the feature (not after).
 
+Spec Lifecycle Rules
+====================
+#. Land quickly: A spec is a living document, and lives in the repository
+   not in gerrit. Potential users, ops and developers will look at
+   http://specs.openstack.org/openstack/swift-specs/ to get an idea of what's
+   being worked on, so they need to be quick to land.
+
+#. Initial version is an idea not a technical design: That way the merits of
+   the idea can be discussed and landed and not stuck in gerrit limbo land.
+
+#. Second version is an overview of the technical design: This will aid in the
+   technical discussions amongst the community.
+
+#. Subsequent versions improve/enhance technical design: Each of these
+   versions should be relatively small patches to the spec to keep rule #1. And
+   keeps the spec up to date with the progress of the implementation.
+
 How to ask questions and get clarifications about a spec
 ========================================================
 Naturally you'll want clarifications about the way a spec is written. To ask
