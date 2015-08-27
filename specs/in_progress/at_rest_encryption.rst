@@ -199,7 +199,7 @@ generated and stored in system metadata.
 
 CTR mode basically turns a block cipher into a stream cipher, so
 dealing with range GET requests becomes much easier. No modification
-of the client's requested byte ranges is needed. When decrypting, some
+of the client's requested byte ranges is needed. When encrypting, some
 padding will be required to align the requested data to AES's 16-byte
 block size, but that can all be done at the proxy level.
 
@@ -556,7 +556,7 @@ If any are found, they should be treated as flaws and fixed.
 ----------------------------------
 
 Swift's security model is perimeter-based: the proxy server handles
-authentication and authorization, then makes unauthenticated requests
+authentication and authorization, then makes authenticated requests
 on a private internal network to the storage servers. If an attacker
 gains access to the internal network, they can read and modify any
 object in the Swift cluster, as well as create new ones. It is
