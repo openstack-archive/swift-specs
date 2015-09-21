@@ -4,4 +4,4 @@ source = swift-specs
 omit = swift-specs/tests/*,swift-specs/openstack/*
 
 [report]
-ignore-errors = True
+ignore_errors = True
