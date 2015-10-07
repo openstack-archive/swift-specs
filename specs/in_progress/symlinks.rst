@@ -41,15 +41,35 @@ fraught with peril, we can offer them this instead.
 ==================
 
 Swift will gain the notion of a symbolic link ("symlink") object. This
-object will reference another object. GET, HEAD, POST, and OPTIONS
+object will reference another object. GET, HEAD, and OPTIONS
 requests for a symlink object will operate on the referenced object.
 DELETE and PUT requests for a symlink object will operate on the
 symlink object, not the referenced object, and will delete or
 overwrite it, respectively.
 
-GET, HEAD, POST, and OPTIONS requests can operate on a symlink object
+GET, HEAD, and OPTIONS requests can operate on a symlink object
 instead of the referenced object by adding a query parameter
 ``?symlink=true`` to the request.
+
+POST has to be a little weird; POST will affect the symlink object,
+but the response to a GET or HEAD will have the symlink's metadata
+merged into it when the referenced object is older than the symlink.
+
+Thus, if a client POSTs to a symlink and then GETs it, that client
+sees updated metadata. If a client PUTs a new object over the
+referenced object and then GETs the symlink, they will see only the
+new object's metadata. The only place where this gets weird is if a
+client POSTs to a symlink and then GETs the referenced object; in this
+case, the client would not see the updated metadata.
+
+It's necessary to treat POST in this manner due to Swift's
+eventually-consistent nature. We cannot have the proxy make an
+additional HEAD request on every POST due to efficiency concerns. One
+suggested idea was to have the proxy tell the object server not to
+apply the POST request to a symlink, but that fails if one
+object-server POST sees a symlink and another sees a normal object.
+The ideal behavior would be for POSTs to apply to the referenced
+object only, but that seems impossible.
 
 The aim is for Swift symlinks to operate analogously to Unix symbolic
 links (except where it does not make sense to do so).
