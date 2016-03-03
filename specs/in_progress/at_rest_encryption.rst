@@ -96,11 +96,6 @@ OPTIONS requests should be ignored entirely by the crypto engine, as
 OPTIONS requests and responses contain neither user data nor user
 metadata.
 
-The decrypter, encrypter, and keymaster will all use the hook in the
-WSGI environment at "swift.copy_hook" to ensure that COPY requests
-result in the new object being encrypted with its own key, not with
-the source object's key (assuming that they differ).
-
 2.1.1 Large Objects
 -------------------
 
