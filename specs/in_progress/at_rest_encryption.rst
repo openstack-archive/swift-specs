@@ -285,6 +285,81 @@ Swift will probably want a keymaster that stores things in Barbican at
 some point.
 
 
+5.3 Keymaster implementation considerations - informational only
+----------------------------------------------------------------
+
+As stated above, Swift will support a variety of keymaster implementations, and
+the implementation details of any keymaster is beyond the scope of this spec
+(other than providing a trivial keymaster for testing). However, we include
+here an *informational* discussion of how keymasters might behave, particularly
+with respect to managing the choice of when to encrypt a resource (or not).
+
+The keymaster is ultimately responsible for specifying *whether or not* a
+resource should be encrypted.  The means of communicating this decision is the
+request environ variable `swift.crypto.override`, as discussed above. (The only
+exception to this rule may be in the case that the decrypter finds no crypto
+metadata in the headers, and assumes that the object was never encrypted.)
+
+If we consider object encryption (as opposed to account or container metadata),
+a keymaster may choose to specify encryption of objects on a per-account,
+per-container or per-object basis. If encryption is specified per-account or
+per-container, the keymaster may base its decision on metadata that it (or some
+other agent) has previously set on the account or container. For example:
+
+ * an administrator or user might add keymaster-specific system metadata to an
+   account when it is created;
+ * a keymaster may inspect container metadata for a storage policy index that
+   it then maps to an encrypt/don't-encrypt decision;
+ * a keymaster may accept a client supplied header that enables/disables
+   encryption and transform that to system metadata that it subsequently
+   inspects on each request to that resource.
+
+If encryption is specified per-object then the decision may be based on the
+object's name or based on client supplied header(s).
+
+The keymaster is also responsible for specifying *which key* is used when a
+resource is to be encrypted/decrypted. Again, if we focus on object encryption,
+the keymaster could choose to use a unique key for each object, or for all
+objects in the same container, or for all object in the same account (using a
+single key for an entire cluster is not disallowed but would not be
+recommended). The specification of crypto metadata storage below is flexible
+enough to support any of those choices.
+
+If a keymaster chooses to specify a unique key for each object then it will
+clearly need to be capable of managing as many keys as there are objects in the
+cluster. For performance reasons it should also be capable of retrieving any
+object's key in a timely fashion when required. A keymaster *might* choose to
+store encrypted keys in Swift itself: for example, an object's unique key could
+be encrypted using its container key before storing perhaps as object metadata.
+However, although scalable, such a solution might not provide the desired
+properties for 'secure deletion' of keys since the deletion of an object in
+Swift does not guarantee immediate deletion of content on disk.
+
+For the sake of illustration, consider a *hypothetical* keymaster
+implementation code-named Vinz. Vinz enables object encryption on a
+per-container basis:
+
+ * for every object PUT, Vinz inspects the target container's metadata to
+   discover the container's storage policy.
+ * Vinz then uses the storage policy as a key into its own encryption policy
+   configuration.
+ * Containers using storage-policy 'gold' or 'silver' are encrypted, containers
+   using storage policy 'bronze' are not encrypted.
+ * Significantly, the mapping of storage policy to encryption policy is a
+   property of the keymaster alone and could be changed if desired.
+ * Vinz also checks the account metadata for a metadata item
+   'X-Account-Sysmeta-Vinz-Encrypt: always' that a sys admin may have set. If
+   present Vinz will specify object encryption regardless of the container
+   policy.
+ * For objects that are to be encrypted/decrypted, Vinz adds the variable
+   ``swift.crypto.fetch_crypto_keys=vinz_fetch_crypto_keys`` to the request
+   environ. Vinz also interacts with Barbican to fetch a key for the object's
+   container which it provides in response to calls to
+   ``vinz_fetch_crypto_keys``.
+ * For objects that are not to be encrypted/decrypted, Vinz adds the variable
+   ``swift.crypto.override=True`` to the request environ.
+
+
 6 Encryption of Object Body
 ===========================
 
