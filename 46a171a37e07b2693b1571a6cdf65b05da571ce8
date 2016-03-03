@@ -1,0 +1,14 @@
+Code-Review+1: Janie Richling <jrichli@us.ibm.com>
+Code-Review+1: Hisashi Osanai <osanai.hisashi@jp.fujitsu.com>
+Code-Review+1: Mauricio Lima <mauriciolimab@gmail.com>
+Code-Review+1: Hamdi Roumani <roumani@ca.ibm.com>
+Code-Review+2: Matthew Oliver <matt@oliver.net.au>
+Code-Review+1: Jeff Feng <jianhua@us.ibm.com>
+Code-Review+2: Thiago da Silva <thiago@redhat.com>
+Workflow+1: Thiago da Silva <thiago@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 03 Mar 2016 11:19:51 +0000
+Reviewed-on: https://review.openstack.org/183014
+Project: openstack/swift-specs
+Branch: refs/heads/master
