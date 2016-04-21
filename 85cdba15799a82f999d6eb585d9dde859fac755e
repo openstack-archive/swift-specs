@@ -1,0 +1,10 @@
+Code-Review+2: Alistair Coles <alistair.coles@hpe.com>
+Code-Review+1: Tim Burke <tim@swiftstack.com>
+Code-Review+2: Christian Schwede <cschwede@redhat.com>
+Workflow+1: Christian Schwede <cschwede@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 21 Apr 2016 06:56:28 +0000
+Reviewed-on: https://review.openstack.org/264140
+Project: openstack/swift-specs
+Branch: refs/heads/master
