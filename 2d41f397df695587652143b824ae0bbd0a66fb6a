@@ -1,0 +1,9 @@
+Code-Review+1: Donagh McCabe <donagh.mccabe@hp.com>
+Code-Review+2: John Dickinson <me@not.mn>
+Workflow+1: John Dickinson <me@not.mn>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 05 May 2016 03:44:49 +0000
+Reviewed-on: https://review.openstack.org/199607
+Project: openstack/swift-specs
+Branch: refs/heads/master
