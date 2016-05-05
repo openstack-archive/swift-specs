@@ -1,0 +1,11 @@
+Code-Review+1: Matthew Oliver <matt@oliver.net.au>
+Code-Review-1: Clay Gerrard <clay.gerrard@gmail.com>
+Code-Review+2: John Dickinson <me@not.mn>
+Workflow+1: John Dickinson <me@not.mn>
+Workflow+1: Alistair Coles <alistair.coles@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 05 May 2016 09:47:15 +0000
+Reviewed-on: https://review.openstack.org/109314
+Project: openstack/swift-specs
+Branch: refs/heads/master
