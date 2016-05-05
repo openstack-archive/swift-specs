@@ -146,6 +146,10 @@ Implementation
 - Object-Reconstructor
 - (Optional) Ring placement strategy
 
+Questions and Answers
+=====================
+
+- TBD
 
 Assignee(s)
 -----------
