@@ -51,25 +51,59 @@ GET, HEAD, and OPTIONS requests can operate on a symlink object
 instead of the referenced object by adding a query parameter
 ``?symlink=true`` to the request.
 
-POST has to be a little weird; POST will affect the symlink object,
-but the response to a GET or HEAD will have the symlink's metadata
-merged into it when the referenced object is older than the symlink.
+The ideal behaviour for POSTs would be for them to apply to the referenced
+object, but due to Swift's eventually-consistent nature this is not possible.
+Initially, it was suggested that POSTs should apply to the symlink directly,
+and during a GET or HEAD both the symlink and referenced object's headers would be
+compared and the newest returned. While this would work, the behaviour can be
+rather odd if an application were to ever GET or HEAD the referenced object directly
+as it would not contain any of the headers posted to the symlink.
 
-Thus, if a client POSTs to a symlink and then GETs it, that client
-sees updated metadata. If a client PUTs a new object over the
-referenced object and then GETs the symlink, they will see only the
-new object's metadata. The only place where this gets weird is if a
-client POSTs to a symlink and then GETs the referenced object; in this
-case, the client would not see the updated metadata.
+Given all of this the best choice left is to fail a POST to a symlink and let
+the application take care of it, namely by posting the referenced object
+directly. Achieving this behaviour requires several changes:
 
-It's necessary to treat POST in this manner due to Swift's
-eventually-consistent nature. We cannot have the proxy make an
-additional HEAD request on every POST due to efficiency concerns. One
-suggested idea was to have the proxy tell the object server not to
-apply the POST request to a symlink, but that fails if one
-object-server POST sees a symlink and another sees a normal object.
-The ideal behavior would be for POSTs to apply to the referenced
-object only, but that seems impossible.
+1) To avoid a HEAD on every POST, the object server will be made aware of
+symlinks and can detect their presence and fail appropriately.
+2) Simply failing a POST in the object server when the object is a symlink will
+not work; Consider the following scenarios:
+
+Scenario A::
+
+  - Add a symlink
+  T0 - PUT /accnt/cont/obj?symlink=true
+  - Overwrite symlink with an regular object
+  T1 - PUT /accnt/cont/obj
+  - Assume at this point some of the primary nodes were down so handoff nodes
+    were used.
+  T2 - POST /accnt/cont/obj
+  - Depending on the object server hit it may see obj as either a symlink or a
+    regular object, though we know in time it will indeed be a real object.
+
+Scenario B::
+
+  - Add a regular object
+  T0 - PUT /accnt/cont/obj
+  - Overwrite regular object with a symlink
+  T1 - PUT /accnt/cont/obj?symlink=true
+  - Assume at this point some of the primary nodes were down so handoff nodes
+    were used.
+  T2 - POST /accnt/cont/obj
+  - Depending on the object server hit it may see obj as either a symlink or a
+    regular object, though we know in time it will indeed be a symlink.
+
+Given the scenarios above at T1 (i.e. during the post) it is possible some object
+servers can see a symlink and others a regular object, thus it is not possible
+to fail the POST of a symlink. Instead, the following behaviour will be
+utilized, the object server will always apply the POST whether the object is a
+symlink or a regular object. Next, we will still return an error to the client
+if the object server believes it has seen a symlink. In scenario A) this would
+imply the POST at T1 may fail but the update will indeed be applied to the
+regular object, which is the correct behaviour. In scenario B) this would imply
+the POST at T1 may fail but the update will indeed be applied to the symlink,
+which while not ideal is not incorrect behaviour per say, and the error
+returned to the application should cause it to apply the POST to the reference
+object and given the initial point raised earlier this is indeed desirable.
 
 The aim is for Swift symlinks to operate analogously to Unix symbolic
 links (except where it does not make sense to do so).
