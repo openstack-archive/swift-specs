@@ -1,0 +1,10 @@
+Code-Review+2: John Dickinson <me@not.mn>
+Workflow+1: John Dickinson <me@not.mn>
+Code-Review+2: Thiago da Silva <thiago@redhat.com>
+Workflow+1: Thiago da Silva <thiago@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 25 May 2016 18:16:21 +0000
+Reviewed-on: https://review.openstack.org/242804
+Project: openstack/swift-specs
+Branch: refs/heads/master
